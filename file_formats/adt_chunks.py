@@ -808,7 +808,7 @@ class MCNK(MOBILE_CHUNK):
 		self.mcal = MCAL(adt)
 		self.mcsh = MCSH(adt)
 		self.mcse = MCSE(adt)
-		# self.mclq = MCLQ(adt)    # TODO
+		self.mclq = MCLQ(adt)
 		self.mccv = MCCV(adt)
 		self.mclv = MCLV(adt)
 
@@ -954,16 +954,15 @@ class MCNK(MOBILE_CHUNK):
 		f.seek(self.address + int(self.ofs_mcse))
 		self.mcse.read(f, self.n_sound_emitters)
 
-		# TODO: (DEPRECATED)
-		# if self.ofs_mclq:
-		# 	f.seek(self.start + self.ofs_mclq)
-		# 	self.mclq.read(f)
+		if self.ofs_mclq:
+			f.seek(self.address + int(self.ofs_mclq))
+			self.mclq.read(f)
 
 		if (self.flags & ADTChunkFlags.HAS_MCCV):
 			f.seek(self.address + int(self.ofs_mccv))
 			self.mccv.read(f)
 
-		# TODO
+		# TODO: MCLV
 		# f.seek(self.start + self.ofs_mclv)
 		# self.mclv.read(f)
 
@@ -1579,6 +1578,113 @@ class MCSE(MOBILE_CHUNK):
 		self.header.write(f)
 		for entry in self.entries:
 			entry.write(f)
+
+
+class MCLQVertex:
+	"""MCLQ liquid vertex (8 bytes)"""
+	size = 8
+
+	def __init__(self):
+		self.liquid_height = 0.0  # float
+		self.liquid_height_2 = 0.0  # float (often unused)
+
+	def read(self, f):
+		self.liquid_height = float32.read(f)
+		self.liquid_height_2 = float32.read(f)
+		return self
+
+	def write(self, f):
+		float32.write(f, self.liquid_height)
+		float32.write(f, self.liquid_height_2)
+		return self
+
+
+class MCLQAttributes:
+	"""MCLQ tile attributes (8 bytes)"""
+	size = 8
+
+	def __init__(self):
+		self.fishable = 0  # uint64 bitmask (8x8 tiles)
+		self.deep = 0      # uint64 bitmask (8x8 tiles)
+
+	def read(self, f):
+		self.fishable = uint64.read(f)
+		self.deep = uint64.read(f)
+		return self
+
+	def write(self, f):
+		uint64.write(f, self.fishable)
+		uint64.write(f, self.deep)
+		return self
+
+
+class MCLQ(MOBILE_CHUNK):
+	"""Legacy liquid chunk (pre-WotLK, but still used in 3.3.5a for some cases)"""
+	magic = 'QLCM'
+
+	# Liquid types
+	TYPE_WATER = 0
+	TYPE_OCEAN = 1
+	TYPE_MAGMA = 2
+	TYPE_SLIME = 3
+
+	def __init__(self, adt):
+		MOBILE_CHUNK.__init__(self, adt)
+		self.header = ChunkHeader(MCLQ.magic)
+		self.liquid_type = self.TYPE_WATER
+		# 9x9 vertices for 8x8 tiles
+		self.vertices = [[MCLQVertex() for _ in range(9)] for _ in range(9)]
+		self.attributes = MCLQAttributes()
+
+	def read(self, f):
+		self.set_address(f.tell())
+		self.header.read(f)
+
+		# Read 9x9 vertices
+		for y in range(9):
+			for x in range(9):
+				self.vertices[y][x].read(f)
+
+		# Read attributes
+		self.attributes.read(f)
+
+		return self
+
+	def write(self, f):
+		self.header.size = 81 * MCLQVertex.size + MCLQAttributes.size  # 9*9*8 + 8 = 656
+		self.header.write(f)
+
+		# Write 9x9 vertices
+		for y in range(9):
+			for x in range(9):
+				self.vertices[y][x].write(f)
+
+		# Write attributes
+		self.attributes.write(f)
+
+		return self
+
+	def set_liquid_type(self, liquid_type):
+		"""Set liquid type (0=water, 1=ocean, 2=magma, 3=slime)"""
+		self.liquid_type = liquid_type
+
+	def set_height(self, height):
+		"""Set uniform liquid height for all vertices"""
+		for y in range(9):
+			for x in range(9):
+				self.vertices[y][x].liquid_height = height
+
+	def set_tile_attribute(self, tile_x, tile_y, fishable=False, deep=False):
+		"""Set attributes for a specific 8x8 tile"""
+		bit = tile_y * 8 + tile_x
+		if fishable:
+			self.attributes.fishable |= (1 << bit)
+		else:
+			self.attributes.fishable &= ~(1 << bit)
+		if deep:
+			self.attributes.deep |= (1 << bit)
+		else:
+			self.attributes.deep &= ~(1 << bit)
 
 
 # TODO
