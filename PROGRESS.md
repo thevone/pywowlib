@@ -9,23 +9,26 @@
   - 添加 `_set_data_size()` 方法根据版本动态设置
   - 更新 `read()` 和 `write()` 方法处理版本差异
 
-### 2. 代码提交 ✅
-- 已提交到本地仓库
-- 包含测试脚本 `test_adt_335.py`
+### 2. MH2O 完整实现 ✅
+- **问题**: 只有占位符实现
+- **修复**:
+  - 实现 `SMLiquidChunk` 结构（256 个，对应 16x16 地形块）
+  - 实现 `SMLiquidInstance` 结构（24 字节）
+  - 实现 `SMLiquidAttributes` 结构（16 字节，包含 fishable/deep 标志）
+  - 完整的 `read()` 和 `write()` 方法，正确处理偏移量
+  - 添加 `add_liquid()` 辅助方法
 
-## 待修复
+### 3. MCNK 版本检测 ✅
+- **状态**: 已正确处理 MOP+ 与其他版本的差异
+- **验证**: 使用 `WoWVersionManager` 判断高分辨率孔洞格式
 
-### 1. MH2O 完整实现 ⚠️
-- **当前状态**: 只有占位符实现
-- **需要**: 完整实现 WotLK 引入的 MH2O 水体块
-- **参考**: wowdev.wiki ADT/v18 规范
+### 4. 测试脚本 ✅
+- `test_adt_335.py` - 基础测试
+- `test_adt_verify.py` - 详细验证测试
 
-### 2. MCNK 版本检测 ⚠️
-- **问题**: 使用 `WoWVersionManager` 判断，但 3.3.5a 支持不完整
-- **需要**: 验证 MCNK 结构在 3.3.5a 下的正确性
-
-### 3. 测试验证 ⚠️
-- **需要**: 使用真实的 3.3.5a ADT 文件测试读写
+### 5. 代码提交 ✅
+- 已提交到本地仓库（3 个提交）
+- 等待推送到 GitHub
 
 ## 使用方法
 
@@ -39,7 +42,15 @@ WoWVersionManager().set_client_version(WoWVersions.WOTLK)
 # 创建/读取 ADT 文件
 adt = ADTFile("path/to/adt.adt")
 
-# 修改...
+# 添加水体
+for x in range(16):
+    for y in range(16):
+        adt.mh2o.add_liquid(
+            tile_x=x, tile_y=y,
+            liquid_type=0,  # 0=water, 1=ocean, 2=magma, 3=slime
+            min_height=0.0,
+            max_height=10.0
+        )
 
 # 保存
 adt.write("path/to/output.adt")
@@ -51,7 +62,7 @@ adt.write("path/to/output.adt")
 
 ### 方式1: GitHub Token
 ```bash
-git remote set-url origin https://YOUR_TOKEN@github.com/thevone/pywowlib.git
+cd pywowlib-fork
 git push origin master
 ```
 
