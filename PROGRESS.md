@@ -18,16 +18,33 @@
   - 完整的 `read()` 和 `write()` 方法，正确处理偏移量
   - 添加 `add_liquid()` 辅助方法
 
-### 3. MCNK 版本检测 ✅
+### 3. MCLQ 完整实现 ✅
+- **问题**: 未实现（标记为 TODO）
+- **修复**:
+  - 实现 `MCLQVertex` 结构（8 字节）
+  - 实现 `MCLQAttributes` 结构（8 字节）
+  - 完整的 `MCLQ` 块，支持 9x9 顶点
+  - 添加辅助方法：`set_liquid_type()`, `set_height()`, `set_tile_attribute()`
+  - 在 MCNK 中启用 MCLQ 读写
+
+### 4. MCNK 版本检测 ✅
 - **状态**: 已正确处理 MOP+ 与其他版本的差异
 - **验证**: 使用 `WoWVersionManager` 判断高分辨率孔洞格式
 
-### 4. 测试脚本 ✅
+### 5. MCAL Alpha 贴图 ✅
+- **状态**: 已完整实现
+- **支持**: LOWRES, BROKEN, HIGHRES, HIGHRES_COMPRESSED 四种模式
+
+### 6. 便利方法 ✅
+- `adt_convenience_methods.py` - 提供易用的 API 封装
+- 包含使用示例
+
+### 7. 测试脚本 ✅
 - `test_adt_335.py` - 基础测试
 - `test_adt_verify.py` - 详细验证测试
 
-### 5. 代码提交 ✅
-- 已提交到本地仓库（3 个提交）
+### 8. 代码提交 ✅
+- 已提交到本地仓库（6 个提交）
 - 等待推送到 GitHub
 
 ## 使用方法
@@ -40,20 +57,35 @@ from pywowlib.adt_file import ADTFile
 WoWVersionManager().set_client_version(WoWVersions.WOTLK)
 
 # 创建/读取 ADT 文件
-adt = ADTFile("path/to/adt.adt")
+adt = ADTFile()
 
-# 添加水体
-for x in range(16):
-    for y in range(16):
-        adt.mh2o.add_liquid(
-            tile_x=x, tile_y=y,
-            liquid_type=0,  # 0=water, 1=ocean, 2=magma, 3=slime
-            min_height=0.0,
-            max_height=10.0
-        )
+# 设置地形高度（chunk 坐标 0-15）
+import random
+heights = [random.uniform(0, 100) for _ in range(145)]
+adt.mcnk[3][5].mcvt.height = heights
+
+# 添加纹理
+from pywowlib.enums.adt_enums import ADTChunkLayerFlags
+tex_id = adt.add_texture_filename("tileset\\azeroth\\grass.blp")
+adt.mcnk[3][5].add_texture_layer(tex_id, ADTChunkLayerFlags.use_alpha_map, 0)
+
+# 添加水体 (MH2O - WotLK 方式)
+adt.mh2o.add_liquid(
+    tile_x=5, tile_y=3,
+    liquid_type=0,  # 0=water, 1=ocean, 2=magma, 3=slime
+    min_height=0.0,
+    max_height=10.0
+)
+
+# 或使用 MCLQ (旧方式)
+adt.mcnk[3][5].mclq.set_liquid_type(0)
+adt.mcnk[3][5].mclq.set_height(5.0)
+
+# 设置区域 ID
+adt.mcnk[3][5].area_id = 1  # Dun Morogh
 
 # 保存
-adt.write("path/to/output.adt")
+adt.write("output.adt")
 ```
 
 ## 提交到 GitHub
@@ -69,6 +101,18 @@ git push origin master
 ### 方式2: 手动上传
 1. 下载修改后的文件
 2. 上传到 GitHub 仓库
+
+## 文件变更统计
+
+```
+6 files changed, 600+ insertions
+- file_formats/adt_chunks.py (MHDR, MH2O, MCLQ 修复)
+- adt_convenience_methods.py (新增)
+- test_adt_335.py (新增)
+- test_adt_verify.py (新增)
+- PROGRESS.md (本文档)
+- ADT_335_FIX_PLAN.md (修复计划)
+```
 
 ## 参考
 - wowdev.wiki ADT/v18 规范
