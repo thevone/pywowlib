@@ -80,10 +80,15 @@ class MVER:
 
 class MHDR:
 	magic = 'RDHM'
-	data_size = 54
+	# 3.3.5a: 44 bytes (no mamp_value)
+	# Cata+: 54 bytes (with mamp_value and padding)
+	data_size_wotlk = 44
+	data_size_cata_plus = 54
 
 	def __init__(self, adt):
-		self.header = ChunkHeader(MHDR.magic, MHDR.data_size)
+		self.adt = adt
+		self._set_data_size()
+		self.header = ChunkHeader(MHDR.magic, self.data_size)
 		self.start_data = 0
 		self.flags = 0
 		self.ofs_mcin = OFFSET(adt)
@@ -97,7 +102,15 @@ class MHDR:
 		self.ofs_mfbo = OFFSET(adt)
 		self.ofs_mh2o = OFFSET(adt)
 		self.ofs_mtxf = OFFSET(adt)
+		# Cata+ only
 		self.mamp_value = 0
+
+	def _set_data_size(self):
+		"""Set data size based on WoW version"""
+		if WoWVersionManager().client_version >= WoWVersions.CATA:
+			self.data_size = MHDR.data_size_cata_plus
+		else:
+			self.data_size = MHDR.data_size_wotlk
 
 	def read(self, f):
 		self.header.read(f)
@@ -114,11 +127,18 @@ class MHDR:
 		self.ofs_mfbo.set_rel(uint32.read(f), self.start_data)
 		self.ofs_mh2o.set_rel(uint32.read(f), self.start_data)
 		self.ofs_mtxf.set_rel(uint32.read(f), self.start_data)
-		self.mamp_value = uint8.read(f)
-
+		
+		# Cata+ only fields
+		if WoWVersionManager().client_version >= WoWVersions.CATA:
+			self.mamp_value = uint8.read(f)
+			# Skip padding for Cata+
+			f.read(9)
+		
 		return self
 
 	def write(self, f):
+		self._set_data_size()
+		self.header.size = self.data_size
 		self.header.write(f)
 		pos = f.tell()
 		uint32.write(f, self.flags)
@@ -133,8 +153,13 @@ class MHDR:
 		uint32.write(f, int(self.ofs_mfbo))
 		uint32.write(f, int(self.ofs_mh2o))
 		uint32.write(f, int(self.ofs_mtxf))
-		uint8.write(f, self.mamp_value)
-
+		
+		# Cata+ only fields
+		if WoWVersionManager().client_version >= WoWVersions.CATA:
+			uint8.write(f, self.mamp_value)
+			# Write padding for Cata+
+			f.write(b'\x00' * 9)
+		
 		return self
 
 
