@@ -543,25 +543,195 @@ class MFBO(MOBILE_CHUNK):
 #             chunk.read()
 
 #     def write(self, f):
+class SMLiquidChunk:
+	"""MH2O chunk entry for each of 256 map tiles"""
+	size = 12
+
+	def __init__(self):
+		self.offset_instances = 0
+		self.layer_count = 0
+		self.offset_attributes = 0
+
+	def read(self, f):
+		self.offset_instances = uint32.read(f)
+		self.layer_count = uint32.read(f)
+		self.offset_attributes = uint32.read(f)
+		return self
+
+	def write(self, f):
+		uint32.write(f, self.offset_instances)
+		uint32.write(f, self.layer_count)
+		uint32.write(f, self.offset_attributes)
+		return self
+
+
+class SMLiquidInstance:
+	"""Liquid instance data"""
+	size = 24
+
+	def __init__(self):
+		self.liquid_type = 0  # 0-3: water, ocean, magma, slime
+		self.liquid_object_or_vertex_format = 0
+		self.min_height_level = 0.0
+		self.max_height_level = 0.0
+		self.offset_x = 0
+		self.offset_y = 0
+		self.width = 0
+		self.height = 0
+		self.offset_exists_bitmap = 0
+		self.offset_vertex_data = 0
+
+	def read(self, f):
+		self.liquid_type = uint16.read(f)
+		self.liquid_object_or_vertex_format = uint16.read(f)
+		self.min_height_level = float32.read(f)
+		self.max_height_level = float32.read(f)
+		self.offset_x = uint8.read(f)
+		self.offset_y = uint8.read(f)
+		self.width = uint8.read(f)
+		self.height = uint8.read(f)
+		self.offset_exists_bitmap = uint32.read(f)
+		self.offset_vertex_data = uint32.read(f)
+		return self
+
+	def write(self, f):
+		uint16.write(f, self.liquid_type)
+		uint16.write(f, self.liquid_object_or_vertex_format)
+		float32.write(f, self.min_height_level)
+		float32.write(f, self.max_height_level)
+		uint8.write(f, self.offset_x)
+		uint8.write(f, self.offset_y)
+		uint8.write(f, self.width)
+		uint8.write(f, self.height)
+		uint32.write(f, self.offset_exists_bitmap)
+		uint32.write(f, self.offset_vertex_data)
+		return self
+
+
+class SMLiquidAttributes:
+	"""Liquid attributes (fishable, deep)"""
+	size = 16
+
+	def __init__(self):
+		self.fishable = 0  # 64-bit mask
+		self.deep = 0      # 64-bit mask
+
+	def read(self, f):
+		self.fishable = uint64.read(f)
+		self.deep = uint64.read(f)
+		return self
+
+	def write(self, f):
+		uint64.write(f, self.fishable)
+		uint64.write(f, self.deep)
+		return self
+
+
 class MH2O(MOBILE_CHUNK):
 	magic = 'O2HM'
 
 	def __init__(self, adt):
 		MOBILE_CHUNK.__init__(self, adt)
 		self.header = ChunkHeader(MH2O.magic)
-		# TODO
-		self.data = []
+		# 256 chunks for 16x16 map tiles
+		self.chunks = [SMLiquidChunk() for _ in range(256)]
+		self.instances = []  # List of SMLiquidInstance
+		self.attributes = []  # List of SMLiquidAttributes
+		self._instance_data = []  # Raw vertex data
 
 	def read(self, f):
 		self.set_address(f.tell())
 		self.header.read(f)
-		self.data = [uint8.read(f) for _ in range(self.header.size)]
+		data_start = f.tell()
+
+		# Read 256 chunk headers
+		for chunk in self.chunks:
+			chunk.read(f)
+
+		# Read instances and attributes based on offsets
+		for i, chunk in enumerate(self.chunks):
+			if chunk.layer_count > 0 and chunk.offset_instances > 0:
+				f.seek(data_start + chunk.offset_instances)
+				for _ in range(chunk.layer_count):
+					instance = SMLiquidInstance()
+					instance.read(f)
+					self.instances.append(instance)
+
+			if chunk.offset_attributes > 0:
+				f.seek(data_start + chunk.offset_attributes)
+				attr = SMLiquidAttributes()
+				attr.read(f)
+				self.attributes.append(attr)
+
+		return self
 
 	def write(self, f):
-		self.header.size = len(self.data)
+		self.set_address(f.tell())
+		
+		# Calculate sizes and offsets
+		header_size = 256 * SMLiquidChunk.size
+		instance_data_size = len(self.instances) * SMLiquidInstance.size
+		attr_data_size = len(self.attributes) * SMLiquidAttributes.size
+		
+		self.header.size = header_size + instance_data_size + attr_data_size
 		self.header.write(f)
-		for c in self.data:
-			uint8.write(f, c)
+		
+		data_start = f.tell()
+		
+		# Write chunk headers (offsets will be calculated)
+		instance_offset = header_size
+		attr_offset = header_size + instance_data_size
+		
+		instance_idx = 0
+		attr_idx = 0
+		
+		for chunk in self.chunks:
+			if chunk.layer_count > 0:
+				chunk.offset_instances = instance_offset
+				instance_offset += chunk.layer_count * SMLiquidInstance.size
+			else:
+				chunk.offset_instances = 0
+			
+			if attr_idx < len(self.attributes):
+				chunk.offset_attributes = attr_offset
+				attr_offset += SMLiquidAttributes.size
+			else:
+				chunk.offset_attributes = 0
+			
+			chunk.write(f)
+		
+		# Write instances
+		for instance in self.instances:
+			instance.write(f)
+		
+		# Write attributes
+		for attr in self.attributes:
+			attr.write(f)
+		
+		return self
+
+	def add_liquid(self, tile_x, tile_y, liquid_type, min_height, max_height, 
+				   width=8, height=8, vertex_format=0):
+		"""Add liquid to a specific tile"""
+		chunk_idx = tile_y * 16 + tile_x
+		chunk = self.chunks[chunk_idx]
+		
+		instance = SMLiquidInstance()
+		instance.liquid_type = liquid_type
+		instance.liquid_object_or_vertex_format = vertex_format
+		instance.min_height_level = min_height
+		instance.max_height_level = max_height
+		instance.offset_x = 0
+		instance.offset_y = 0
+		instance.width = width
+		instance.height = height
+		instance.offset_exists_bitmap = 0
+		instance.offset_vertex_data = 0
+		
+		self.instances.append(instance)
+		chunk.layer_count += 1
+		
+		return len(self.instances) - 1
 
 
 class MTXF(MOBILE_CHUNK):
